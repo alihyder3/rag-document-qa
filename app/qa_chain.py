@@ -9,7 +9,8 @@ from pathlib import Path
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
-PROMPT_TEMPLATE = """Use the following context to answer the question.
+PROMPT_TEMPLATE = """Use the following context to answer the question as completely as possible.
+List all relevant items you find in the context. Do not truncate your answer.
 If you don't know the answer from the context, say so clearly.
 
 Context: {context}
@@ -26,7 +27,7 @@ def build_qa_chain(persist_dir: str = "../faiss_db"):
         persist_dir, embeddings,
         allow_dangerous_deserialization=True
     )
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
 
     prompt = PromptTemplate(
         template=PROMPT_TEMPLATE,
