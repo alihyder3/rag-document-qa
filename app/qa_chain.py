@@ -1,23 +1,22 @@
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_groq import ChatGroq
-from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
+from langchain_core.messages import HumanMessage, AIMessage
 from dotenv import load_dotenv
 from pathlib import Path
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
-PROMPT_TEMPLATE = """Use the following context to answer the question as completely as possible.
-List all relevant items you find in the context. Do not truncate your answer.
-If you don't know the answer from the context, say so clearly.
+SYSTEM_PROMPT = """You are a helpful assistant that answers questions based on the provided document context.
+Use the context to answer as completely and accurately as possible.
+If the answer is not in the context, say so clearly.
+When listing items, always list ALL items you find in the context — never truncate.
 
-Context: {context}
-
-Question: {question}
-
-Answer:"""
+Context:
+{context}"""
 
 def build_qa_chain(persist_dir: str = "../faiss_db"):
     embeddings = HuggingFaceEmbeddings(
@@ -27,19 +26,30 @@ def build_qa_chain(persist_dir: str = "../faiss_db"):
         persist_dir, embeddings,
         allow_dangerous_deserialization=True
     )
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 20})
 
-    prompt = PromptTemplate(
-        template=PROMPT_TEMPLATE,
-        input_variables=["context", "question"]
-    )
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", SYSTEM_PROMPT),
+        MessagesPlaceholder(variable_name="chat_history"),
+        ("human", "{question}"),
+    ])
+
     llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
 
     def format_docs(docs):
         return "\n\n".join(doc.page_content for doc in docs)
 
+    def get_context(input_dict):
+        question = input_dict["question"]
+        docs = retriever.invoke(question)
+        return format_docs(docs)
+
     chain = (
-        {"context": retriever | format_docs, "question": RunnablePassthrough()}
+        {
+            "context": get_context,
+            "question": lambda x: x["question"],
+            "chat_history": lambda x: x.get("chat_history", [])
+        }
         | prompt
         | llm
         | StrOutputParser()

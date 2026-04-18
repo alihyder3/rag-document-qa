@@ -1,8 +1,8 @@
 import streamlit as st
 import tempfile
-import os
 from pathlib import Path
 from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage, AIMessage
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
@@ -15,9 +15,10 @@ st.caption("Upload a PDF and ask questions about its contents")
 
 if "chain" not in st.session_state:
     st.session_state.chain = None
-
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
 uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
 
@@ -30,6 +31,11 @@ if uploaded_file and st.session_state.chain is None:
         st.session_state.chain = build_qa_chain(persist_dir="../faiss_db")
     st.success("Document ready! Ask your questions below.")
 
+if st.sidebar.button("Clear conversation"):
+    st.session_state.messages = []
+    st.session_state.chat_history = []
+    st.rerun()
+
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
@@ -40,10 +46,17 @@ if st.session_state.chain:
         st.session_state.messages.append({"role": "user", "content": question})
         with st.chat_message("user"):
             st.write(question)
+
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                answer = st.session_state.chain.invoke(question)
+                answer = st.session_state.chain.invoke({
+                    "question": question,
+                    "chat_history": st.session_state.chat_history
+                })
                 st.write(answer)
+
+        st.session_state.chat_history.append(HumanMessage(content=question))
+        st.session_state.chat_history.append(AIMessage(content=answer))
         st.session_state.messages.append({"role": "assistant", "content": answer})
 else:
     st.info("Please upload a PDF to get started.")
